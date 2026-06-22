@@ -1,108 +1,56 @@
-Perfeito. Podemos adicionar ao README uma nova seção chamada **Consultas SPARQL (Competency Questions)**, mostrando como a ontologia pode ser consultada no [GraphDB](https://graphdb.ontotext.com/?utm_source=chatgpt.com) ou em qualquer triplestore compatível com RDF/OWL.
+---
 
-Sugiro inserir a seção abaixo logo após **“Possíveis Aplicações”**.
+# Patients and Demographic Data
+
+These CQs focus on patient profiles, demographic attributes, and grouping based on basic characteristics.
 
 ---
 
-# 8. Consultas SPARQL (Competency Questions)
-
-A ontologia foi validada por meio de consultas SPARQL baseadas em **Competency Questions (CQs)**, que ajudam a verificar se o modelo ontológico responde adequadamente às perguntas para as quais foi projetado. As consultas abaixo exploram taxonomia, relações clínicas, fatores de risco, diagnósticos e estrutura de datasets. 
-
----
-
-## CQ1 — Quais são as principais categorias de lesões orais representadas na ontologia?
-
-Objetivo: recuperar todas as subclasses da classe `Lesion`.
+## CQ01. What is the average age of patients by lesion category?
 
 ```sparql
-PREFIX ex: <http://example.org/oral-cancer-ontology#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#> 
+PREFIX oral: <http://example.org/oral-cancer-ontology#> 
 
-SELECT DISTINCT ?category ?label
-WHERE {
-  ?category rdfs:subClassOf ex:Lesion .
-  OPTIONAL { ?category rdfs:label ?label . }
-}
-ORDER BY ?category
+SELECT ?lesionType (AVG(?age) AS ?avgAge) 
+WHERE { 
+    ?patient a oral:Patient ; 
+             oral:age ?age ; 
+             oral:hasMedicalImage ?img . 
+
+    ?img oral:hasClinicalDiagnosis ?lesion . 
+    ?lesion a ?lesionType . 
+
+    FILTER(?lesionType != owl:NamedIndividual && ?lesionType != oral:Lesion) 
+} 
+GROUP BY ?lesionType 
+ORDER BY DESC(?avgAge)
 ```
 
 ---
 
-## CQ2 — Quais fatores de risco aparecem em pacientes que possuem determinada lesão?
-
-Objetivo: identificar correlação entre diagnósticos clínicos e fatores de risco.
-
-```sparql
-PREFIX owl: <http://www.w3.org/2002/07/owl#>
-PREFIX oral: <http://example.org/oral-cancer-ontology#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-SELECT DISTINCT ?lesionType ?riskFactorType
-WHERE {
-  ?image oral:hasClinicalDiagnosis ?lesion ;
-         oral:belongsToPatient ?patient .
-  ?patient oral:hasRiskFactor ?riskFactor .
-  ?lesion rdf:type ?lesionType .
-  ?riskFactor rdf:type ?riskFactorType .
-  FILTER(?lesionType != owl:NamedIndividual)
-  FILTER(?riskFactorType != owl:NamedIndividual)
-}
-ORDER BY ?lesionType ?riskFactorType
-```
-
----
-
-## CQ3 — Quais imagens médicas estão associadas a cada paciente?
-
-Objetivo: mapear pacientes para exames clínicos disponíveis.
+## CQ02. What is the clinical and habit profile of each patient (age, sex, smoking, alcohol, betel quid)?
 
 ```sparql
 PREFIX oral: <http://example.org/oral-cancer-ontology#>
 
-SELECT DISTINCT ?patient ?patientID ?image
+SELECT
+    ?patient
+    ?id
+    ?age
+    ?gender
+    (GROUP_CONCAT(DISTINCT STRAFTER(STR(?riskFactor),"#"); separator=", ") AS ?riskFactors)
 WHERE {
-  ?image oral:belongsToPatient ?patient .
-  OPTIONAL { ?patient oral:hasPatientID ?patientID . }
-}
-ORDER BY ?patient
-```
 
----
+    ?patient a oral:Patient .
 
-## CQ4 — Quais lesões foram diagnosticadas para cada paciente?
+    OPTIONAL { ?patient oral:patientID ?id . }
+    OPTIONAL { ?patient oral:age ?age . }
+    OPTIONAL { ?patient oral:gender ?gender . }
 
-Objetivo: obter diagnósticos clínicos por paciente.
-
-```sparql
-PREFIX oral: <http://example.org/oral-cancer-ontology#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-SELECT DISTINCT ?patient ?diagnosis ?diagnosisType
-WHERE {
-  ?image oral:belongsToPatient ?patient ;
-         oral:hasClinicalDiagnosis ?diagnosis .
-  ?diagnosis rdf:type ?diagnosisType .
-}
-ORDER BY ?patient
-```
-
----
-
-## CQ5 — Qual o perfil clínico e hábitos de cada paciente?
-
-Objetivo: combinar dados demográficos e fatores de risco.
-
-```sparql
-PREFIX oral: <http://example.org/oral-cancer-ontology#>
-
-SELECT ?patient ?id ?age ?gender
-       (GROUP_CONCAT(DISTINCT STRAFTER(STR(?riskFactor),"#"); separator=", ") AS ?riskFactors)
-WHERE {
-  ?patient a oral:Patient .
-  OPTIONAL { ?patient oral:patientID ?id . }
-  OPTIONAL { ?patient oral:age ?age . }
-  OPTIONAL { ?patient oral:gender ?gender . }
-  OPTIONAL { ?patient oral:hasRiskFactor ?riskFactor . }
+    OPTIONAL {
+        ?patient oral:hasRiskFactor ?riskFactor .
+    }
 }
 GROUP BY ?patient ?id ?age ?gender
 ORDER BY ?patient
@@ -110,36 +58,103 @@ ORDER BY ?patient
 
 ---
 
-Sim — você está certo. Da CQ6 em diante eu resumi em formato descritivo, mas para o README ideal é manter **todas as Competency Questions com o mesmo padrão**, isto é:
+## CQ03. Which patients present multiple risk factors?
 
-1. Pergunta (CQ)
-2. Objetivo
-3. Consulta SPARQL completa
-4. Interpretação do resultado
+```sparql
+PREFIX oral: <http://example.org/oral-cancer-ontology#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
-Abaixo estão as **CQ6 até CQ14 completas**.
+SELECT
+       ?patientID
+       (COUNT(DISTINCT ?riskFactor) AS ?numRisks)
+       (GROUP_CONCAT(
+            DISTINCT STRAFTER(STR(?riskFactorType),"#");
+            separator=", "
+        ) AS ?riskFactors)
+WHERE {
+
+    ?patient oral:hasRiskFactor ?riskFactor ;
+             oral:patientID ?patientID .
+
+    ?riskFactor rdf:type ?riskFactorType .
+}
+GROUP BY ?patientID
+HAVING (COUNT(DISTINCT ?riskFactor) > 1)
+ORDER BY DESC(?numRisks)
+```
 
 ---
 
-## CQ6 — Quais anotações de imagem (lesões) estão associadas a cada exame?
+# Oral Lesions
 
-**Objetivo:** recuperar as anotações das imagens, incluindo a lesão associada e sua bounding box.
+These CQs focus on lesion taxonomy, categorization, and distribution.
+
+---
+
+## CQ04. What are the main categories of oral lesions represented in the ontology?
+
+```sparql
+PREFIX ex: <http://example.org/oral-cancer-ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT DISTINCT ?category ?label
+WHERE {
+    ?category rdfs:subClassOf ex:Lesion .
+
+    OPTIONAL {
+        ?category rdfs:label ?label .
+    }
+}
+ORDER BY ?category
+```
+
+---
+
+## CQ05. Which lesions are associated with more than one patient?
+
+```sparql
+PREFIX oral: <http://example.org/oral-cancer-ontology#>
+
+SELECT
+       ?category
+       (COUNT(DISTINCT ?patient) AS ?numPatients)
+WHERE {
+
+    ?image oral:belongsToPatient ?patient ;
+           oral:hasCategory ?category .
+}
+GROUP BY ?category
+HAVING (COUNT(DISTINCT ?patient) > 1)
+ORDER BY DESC(?numPatients)
+```
+
+---
+
+# Medical Images and Annotations
+
+These CQs focus on exams, image files, and lesion annotations.
+
+---
+
+## CQ06. Which image annotations (lesions) are associated with each exam?
 
 ```sparql
 PREFIX oral: <http://example.org/oral-cancer-ontology#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
 SELECT DISTINCT
-    ?patient
-    ?image
-    ?annotation
-    (COALESCE(?label, STRAFTER(STR(?lesion),"#")) AS ?lesionName)
-    ?x
-    ?y
-    ?width
-    ?height
-    ?area
+       ?patient
+       ?image
+       ?annotation
+       (COALESCE(?label,
+                 STRAFTER(STR(?lesion),"#")) AS ?lesionName)
+       ?x
+       ?y
+       ?width
+       ?height
+       ?area
 WHERE {
+
     ?image oral:hasAnnotation ?annotation ;
            oral:belongsToPatient ?patient .
 
@@ -150,6 +165,7 @@ WHERE {
 
     OPTIONAL {
         ?annotation oral:hasBoundingBox ?bbox .
+
         OPTIONAL { ?bbox oral:bb_x ?x . }
         OPTIONAL { ?bbox oral:bb_y ?y . }
         OPTIONAL { ?bbox oral:bb_width ?width . }
@@ -160,143 +176,71 @@ WHERE {
 ORDER BY ?patient ?image ?annotation
 ```
 
-**Interpretação:**
-Permite localizar semanticamente cada lesão dentro da imagem, servindo como ponte entre a ontologia e tarefas de visão computacional (segmentação/detecção).
-
 ---
 
-## CQ7 — Quais pacientes apresentam mais de um tipo de lesão diagnosticada?
-
-**Objetivo:** identificar pacientes com múltiplas categorias clínicas.
+## CQ07. Which medical images are associated with each patient?
 
 ```sparql
 PREFIX oral: <http://example.org/oral-cancer-ontology#>
 
-SELECT
-    ?patient
-    (COUNT(DISTINCT ?category) AS ?numCategories)
-    (GROUP_CONCAT(DISTINCT STRAFTER(STR(?category),"#"); separator=", ") AS ?categories)
+SELECT DISTINCT ?patient ?patientID ?image
 WHERE {
-    ?image oral:belongsToPatient ?patient ;
-           oral:hasCategory ?category .
+    ?image oral:belongsToPatient ?patient .
+
+    OPTIONAL {
+        ?patient oral:hasPatientID ?patientID .
+    }
 }
-GROUP BY ?patient
-HAVING (COUNT(DISTINCT ?category) > 1)
-ORDER BY DESC(?numCategories)
+ORDER BY ?patient
 ```
 
-**Interpretação:**
-Identifica pacientes com múltiplas condições ou progressão clínica entre categorias diagnósticas.
+---
+
+# Risk Factors
+
+These CQs focus on habits, history, and causative factors.
 
 ---
 
-## CQ8 — Quais fatores de risco estão mais frequentemente associados a lesões malignas?
-
-**Objetivo:** correlacionar fatores de risco com malignidade.
+## CQ08. Which risk factors appear in patients who have a specific lesion?
 
 ```sparql
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
 PREFIX oral: <http://example.org/oral-cancer-ontology#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
-SELECT
-    ?lesionType
-    ?riskFactorType
-    (COUNT(DISTINCT ?patient) AS ?frequency)
+SELECT DISTINCT
+       ?lesionType
+       ?riskFactorType
 WHERE {
-    ?image oral:belongsToPatient ?patient ;
-           oral:hasClinicalDiagnosis ?lesion .
+
+    ?image oral:hasClinicalDiagnosis ?lesion ;
+           oral:belongsToPatient ?patient .
 
     ?patient oral:hasRiskFactor ?riskFactor .
 
     ?lesion rdf:type ?lesionType .
     ?riskFactor rdf:type ?riskFactorType .
 
-    FILTER(?lesionType != oral:Lesion)
+    FILTER(?lesionType != owl:NamedIndividual)
+    FILTER(?riskFactorType != owl:NamedIndividual)
 }
-GROUP BY ?lesionType ?riskFactorType
-ORDER BY DESC(?frequency)
+ORDER BY ?lesionType ?riskFactorType
 ```
-
-**Interpretação:**
-Permite identificar padrões epidemiológicos relevantes, como forte associação entre tabagismo e OSCC.
 
 ---
 
-## CQ9 — Quais imagens estão associadas a pacientes com diagnóstico confirmado de câncer oral?
-
-**Objetivo:** filtrar imagens de casos confirmados de câncer oral.
-
-```sparql
-PREFIX oral: <http://example.org/oral-cancer-ontology#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
-
-SELECT DISTINCT
-    ?patient
-    ?image
-    ?lesion
-    ?label
-WHERE {
-    ?image oral:belongsToPatient ?patient ;
-           oral:hasClinicalDiagnosis ?lesion .
-
-    ?lesion rdfs:label ?label .
-
-    FILTER(
-        REGEX(
-            LCASE(STR(?label)),
-            "oral cancer|cancer|carcinoma"
-        )
-    )
-}
-ORDER BY ?patient
-```
-
-**Interpretação:**
-Útil para seleção de datasets específicos para treinamento de modelos de IA focados em câncer oral.
-
----
-
-## CQ10 — Como as categorias do dataset (Normal, Benign, OPMD e Malignant) se relacionam com os diagnósticos clínicos das lesões?
-
-**Objetivo:** validar consistência entre labels computacionais e diagnósticos médicos.
-
-```sparql
-PREFIX oral: <http://example.org/oral-cancer-ontology#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-SELECT
-    ?category
-    ?diagnosisType
-    (COUNT(*) AS ?frequency)
-WHERE {
-    ?image oral:hasCategory ?category ;
-           oral:hasClinicalDiagnosis ?diagnosis .
-
-    ?diagnosis rdf:type ?diagnosisType .
-
-    FILTER(?diagnosisType != oral:Lesion)
-}
-GROUP BY ?category ?diagnosisType
-ORDER BY ?category DESC(?frequency)
-```
-
-**Interpretação:**
-Ajuda a verificar inconsistências entre classificação computacional e diagnóstico clínico.
-
----
-
-## CQ11 — Quais pacientes têm fatores de risco, mas não têm diagnóstico registrado?
-
-**Objetivo:** identificar pacientes que necessitam acompanhamento.
+## CQ09. Which patients have risk factors but no recorded diagnosis?
 
 ```sparql
 PREFIX oral: <http://example.org/oral-cancer-ontology#>
 
 SELECT
-    ?patient
-    ?patientID
-    (GROUP_CONCAT(DISTINCT STRAFTER(STR(?riskFactor),"#"); separator=", ") AS ?riskFactors)
+       ?patient
+       ?patientID
+       (GROUP_CONCAT(DISTINCT STRAFTER(STR(?riskFactor),"#"); separator=", ") AS ?riskFactors)
 WHERE {
+
     ?patient a oral:Patient ;
              oral:hasRiskFactor ?riskFactor .
 
@@ -313,24 +257,152 @@ GROUP BY ?patient ?patientID
 ORDER BY ?patientID
 ```
 
-**Interpretação:**
-Importante para triagem preventiva e rastreamento clínico.
+---
+
+# Clinical Inference
+
+These CQs perform higher-level clinical reasoning and epidemiological correlations.
 
 ---
 
-## CQ12 — Quais diagnósticos estão mais frequentemente associados a um determinado fator de risco?
+## CQ10. Which patients present more than one type of diagnosed lesion?
 
-**Objetivo:** descobrir associações entre hábitos e diagnósticos.
+```sparql
+PREFIX oral: <http://example.org/oral-cancer-ontology#>
+
+SELECT
+    ?patient
+    (COUNT(DISTINCT ?category) AS ?numCategories)
+    (GROUP_CONCAT(DISTINCT STRAFTER(STR(?category),"#"); separator=", ") AS ?categories)
+WHERE {
+
+    ?image oral:belongsToPatient ?patient ;
+           oral:hasCategory ?category .
+}
+GROUP BY ?patient
+HAVING (COUNT(DISTINCT ?category) > 1)
+ORDER BY DESC(?numCategories)
+```
+
+---
+
+## CQ11. Which lesions were diagnosed for each patient from the associated medical images?
+
+```sparql
+PREFIX oral: <http://example.org/oral-cancer-ontology#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT DISTINCT
+       ?patient
+       ?diagnosis
+       ?diagnosisType
+WHERE {
+
+    ?image oral:belongsToPatient ?patient ;
+           oral:hasClinicalDiagnosis ?diagnosis .
+
+    ?diagnosis rdf:type ?diagnosisType .
+}
+ORDER BY ?patient
+```
+
+---
+
+## CQ12. Which risk factors are most frequently associated with malignant lesions?
 
 ```sparql
 PREFIX oral: <http://example.org/oral-cancer-ontology#>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
 SELECT
-    (STRAFTER(STR(?riskFactorType),"#") AS ?RiskFactor)
-    (STRAFTER(STR(?diagnosisType),"#") AS ?Diagnosis)
-    (COUNT(DISTINCT ?patient) AS ?Patients)
+    ?lesionType
+    ?riskFactorType
+    (COUNT(DISTINCT ?patient) AS ?frequency)
 WHERE {
+
+    ?image oral:belongsToPatient ?patient ;
+           oral:hasClinicalDiagnosis ?lesion .
+
+    ?patient oral:hasRiskFactor ?riskFactor .
+
+    ?lesion rdf:type ?lesionType .
+    ?riskFactor rdf:type ?riskFactorType .
+
+    FILTER(?lesionType != oral:Lesion)
+}
+GROUP BY ?lesionType ?riskFactorType
+ORDER BY DESC(?frequency)
+```
+
+---
+
+## CQ13. Which images are associated with patients with a confirmed diagnosis of oral cancer?
+
+```sparql
+PREFIX oral: <http://example.org/oral-cancer-ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+SELECT DISTINCT
+       ?patient
+       ?image
+       ?lesion
+       ?label
+WHERE {
+
+    ?image oral:belongsToPatient ?patient ;
+           oral:hasClinicalDiagnosis ?lesion .
+
+    ?lesion rdfs:label ?label .
+
+    FILTER(
+        REGEX(
+            LCASE(STR(?label)),
+            "oral cancer|cancer|carcinoma"
+        )
+    )
+}
+ORDER BY ?patient
+```
+
+---
+
+## CQ14. How do the dataset categories (Normal, Benign, OPMD, and Malignant) relate to clinical lesion diagnoses?
+
+```sparql
+PREFIX oral: <http://example.org/oral-cancer-ontology#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT
+       ?category
+       ?diagnosisType
+       (COUNT(*) AS ?frequency)
+WHERE {
+
+    ?image oral:hasCategory ?category ;
+           oral:hasClinicalDiagnosis ?diagnosis .
+
+    ?diagnosis rdf:type ?diagnosisType .
+
+    FILTER(?diagnosisType != oral:Lesion)
+}
+GROUP BY ?category ?diagnosisType
+ORDER BY ?category DESC(?frequency)
+```
+
+---
+
+## CQ15. Which diagnoses are most frequently associated with a given risk factor?
+
+```sparql
+PREFIX oral: <http://example.org/oral-cancer-ontology#>
+PREFIX rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT
+       (STRAFTER(STR(?riskFactorType),"#") AS ?RiskFactor)
+       (STRAFTER(STR(?diagnosisType),"#") AS ?Diagnosis)
+       (COUNT(DISTINCT ?patient) AS ?Patients)
+WHERE {
+
     ?patient oral:hasRiskFactor ?riskFactor ;
              oral:hasMedicalImage ?image .
 
@@ -344,63 +416,5 @@ WHERE {
 GROUP BY ?riskFactorType ?diagnosisType
 ORDER BY DESC(?Patients)
 ```
-
-**Interpretação:**
-Suporta análises clínicas para investigação de fatores etiológicos.
-
----
-
-## CQ13 — Quais lesões estão associadas a mais de um paciente?
-
-**Objetivo:** identificar lesões recorrentes na base.
-
-```sparql
-PREFIX oral: <http://example.org/oral-cancer-ontology#>
-
-SELECT
-    ?category
-    (COUNT(DISTINCT ?patient) AS ?numPatients)
-WHERE {
-    ?image oral:belongsToPatient ?patient ;
-           oral:hasCategory ?category .
-}
-GROUP BY ?category
-HAVING (COUNT(DISTINCT ?patient) > 1)
-ORDER BY DESC(?numPatients)
-```
-
-**Interpretação:**
-Permite detectar classes clínicas mais prevalentes no dataset.
-
----
-
-## CQ14 — Quais pacientes apresentam múltiplos fatores de risco?
-
-**Objetivo:** identificar pacientes com maior vulnerabilidade clínica.
-
-```sparql
-PREFIX oral: <http://example.org/oral-cancer-ontology#>
-PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
-
-SELECT
-    ?patientID
-    (COUNT(DISTINCT ?riskFactor) AS ?numRisks)
-    (GROUP_CONCAT(
-        DISTINCT STRAFTER(STR(?riskFactorType),"#");
-        separator=", "
-    ) AS ?riskFactors)
-WHERE {
-    ?patient oral:hasRiskFactor ?riskFactor ;
-             oral:patientID ?patientID .
-
-    ?riskFactor rdf:type ?riskFactorType .
-}
-GROUP BY ?patientID
-HAVING (COUNT(DISTINCT ?riskFactor) > 1)
-ORDER BY DESC(?numRisks)
-```
-
-**Interpretação:**
-Auxilia na priorização de pacientes para monitoramento e intervenções preventivas.
 
 ---
